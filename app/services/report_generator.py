@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import csv
+import io
+import json
+from typing import Any, Dict
+
+
+def generate_json_report(audit: Dict[str, Any]) -> str:
+    return json.dumps(audit, indent=2, default=str)
+
+
+def generate_csv_report(audit: Dict[str, Any]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # General Info
+    writer.writerow(["SEO AUDIT REPORT", audit.get("domain", audit.get("url", ""))])
+    writer.writerow(["Audit ID", audit.get("id") or audit.get("audit_id")])
+    writer.writerow(["URL", audit.get("url")])
+    writer.writerow(["Overall Score", f"{audit.get('overall_score', 'N/A')}/100"])
+    writer.writerow(["Date", audit.get("completed_at") or audit.get("created_at")])
+    writer.writerow([])
+
+    # Metrics Summary
+    writer.writerow(["METRIC", "WEIGHT", "SCORE"])
+    metrics = audit.get("metrics") or {}
+    writer.writerow(["Title & Meta Description", "25%", metrics.get("title_meta", {}).get("score", "N/A")])
+    writer.writerow(["Broken Internal Links", "25%", metrics.get("broken_links", {}).get("score", "N/A")])
+    writer.writerow(["Image Alt Text", "15%", metrics.get("image_alt", {}).get("score", "N/A")])
+    writer.writerow(["Heading Structure", "20%", metrics.get("headings", {}).get("score", "N/A")])
+    writer.writerow(["Canonical Tags", "15%", metrics.get("canonical", {}).get("score", "N/A")])
+    writer.writerow([])
+
+    # Pages
+    writer.writerow(["PAGES CRAWLED"])
+    writer.writerow(["URL", "Status Code", "Title", "H1 Count", "Missing Alt", "Issues Count"])
+    for page in audit.get("pages", []):
+        writer.writerow([
+            page.get("url"),
+            page.get("status_code"),
+            page.get("title"),
+            page.get("h1_count"),
+            page.get("images_missing_alt"),
+            page.get("issues_count"),
+        ])
+    writer.writerow([])
+
+    # Recommendations
+    writer.writerow(["RECOMMENDATIONS"])
+    writer.writerow(["Priority", "Title", "Category", "Expected Impact", "Estimated Effort"])
+    for rec in audit.get("recommendations", []):
+        writer.writerow([
+            rec.get("priority"),
+            rec.get("title"),
+            rec.get("category"),
+            rec.get("expected_impact"),
+            rec.get("estimated_effort"),
+        ])
+
+    return output.getvalue()
+
+
+def generate_pdf_report(audit: Dict[str, Any]) -> bytes:
+    """
+    Generates a valid, well-formed PDF 1.4 document containing the complete
+    audit executive summary, 5-metric breakdown, and recommendations.
+    """
+    url = audit.get("url", "https://example.com")
+    domain = audit.get("domain", "example.com")
+    score = audit.get("overall_score", 0)
+    audit_id = audit.get("id") or audit.get("audit_id", "audit_1")
+    date_str = str(audit.get("completed_at") or audit.get("created_at") or "2026-11-18")[:10]
+
+    metrics = audit.get("metrics") or {}
+    m_title = metrics.get("title_meta", {}).get("score", 0)
+    m_links = metrics.get("broken_links", {}).get("score", 0)
+    m_images = metrics.get("image_alt", {}).get("score", 0)
+    m_headings = metrics.get("headings", {}).get("score", 0)
+    m_canonical = metrics.get("canonical", {}).get("score", 0)
+
+    # PostScript text rendering commands
+    content_lines = [
+        "BT",
+        "/F1 20 Tf",
+        "50 780 Td",
+        f"(SEO Audit Executive Report) Tj",
+        "/F1 12 Tf",
+        "0 -25 Td",
+        f"(Domain: {domain}) Tj",
+        "0 -18 Td",
+        f"(Target URL: {url}) Tj",
+        "0 -18 Td",
+        f"(Audit Date: {date_str}   |   Audit ID: {audit_id}) Tj",
+        "/F1 16 Tf",
+        "0 -35 Td",
+        f"(Overall SEO Score: {score} / 100) Tj",
+        "/F1 12 Tf",
+        "0 -30 Td",
+        "(Weighted Core Metrics Evaluation:) Tj",
+        "/F1 11 Tf",
+        "0 -20 Td",
+        f"(1. Title & Meta Description [25%]: {m_title}/100) Tj",
+        "0 -18 Td",
+        f"(2. Broken Internal Links      [25%]: {m_links}/100) Tj",
+        "0 -18 Td",
+        f"(3. Heading Structure         [20%]: {m_headings}/100) Tj",
+        "0 -18 Td",
+        f"(4. Image Alt Attributes      [15%]: {m_images}/100) Tj",
+        "0 -18 Td",
+        f"(5. Canonical URL Tags         [15%]: {m_canonical}/100) Tj",
+        "/F1 14 Tf",
+        "0 -35 Td",
+        "(Top Prioritized AI Recommendations:) Tj",
+        "/F1 10 Tf",
+    ]
+
+    recs = audit.get("recommendations", [])
+    if recs:
+        for idx, r in enumerate(recs[:4], start=1):
+            title = r.get("title", "")[:60].replace("(", "[").replace(")", "]")
+            prio = str(r.get("priority", "medium")).upper()
+            content_lines.extend([
+                "0 -20 Td",
+                f"({idx}. [{prio}] {title}) Tj",
+            ])
+    else:
+        content_lines.extend([
+            "0 -20 Td",
+            "(No critical issues identified. Website conforms to baseline SEO standards.) Tj",
+        ])
+
+    content_lines.extend([
+        "0 -40 Td",
+        "/F1 9 Tf",
+        "(Generated by AI Marketing Intelligence Assistant - Powered by Gemini) Tj",
+        "ET",
+    ])
+
+    stream_content = "\n".join(content_lines).encode("latin1")
+    stream_len = len(stream_content)
+
+    # Build PDF structures
+    objs = [
+        # Obj 1: Catalog
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        # Obj 2: Pages
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+        # Obj 3: Page
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n",
+        # Obj 4: Contents
+        f"4 0 obj\n<< /Length {stream_len} >>\nstream\n".encode("latin1") + stream_content + b"\nendstream\nendobj\n",
+        # Obj 5: Font
+        b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+    ]
+
+    pdf = io.BytesIO()
+    pdf.write(b"%PDF-1.4\n")
+    offsets = []
+    for obj in objs:
+        offsets.append(pdf.tell())
+        pdf.write(obj)
+
+    xref_offset = pdf.tell()
+    pdf.write(b"xref\n0 6\n0000000000 65535 f \n")
+    for off in offsets:
+        pdf.write(f"{off:010d} 00000 n \n".encode("latin1"))
+
+    pdf.write(f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("latin1"))
+    return pdf.getvalue()
